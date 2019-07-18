@@ -1,0 +1,230 @@
+
+Abstract: Here I will try to use what I learned in class to apply logistic regression to our loan data set from Lending Club. 
+Ideally we want to find a model that helps best predict the loan status of each individual. I will apply logistic regression by 
+creating loan status into a binomial numeric observation and utilizing the ROC curve as well as other methods to determine accuracy 
+through the use of the 5 Steps introduced by Lantz. 
+
+```{r message=FALSE}
+library(gtools)
+library(RDS)
+library(class)
+library(mdsr)
+library(C50)
+library(rpart.plot)
+library(rpart)
+library(randomForest)
+library(ROCR)
+library(stringr)
+library(gsubfn)
+library(pROC)
+library(caret)
+library(tictoc)
+```
+Introduction: Here we have our two datasets that we will be merging and after exploring the data we will clean up the dataset to 
+provide us with the minimal amount of missing variables to work with. I believe the first step is very important in order to avoid 
+any issues further down when we test our models.
+
+#Step 1 Collecting the Data
+
+```{r}
+mydata1 = read.csv("C:\\Users\\llope\\OneDrive\\Desktop\\Stat652\\Project652\\LoanStats3b.csv",
+ header=TRUE,
+stringsAsFactors = FALSE)
+mydata2 = read.csv("C:\\Users\\llope\\OneDrive\\Desktop\\Stat652\\Project652\\LoanStats3c.csv",
+ header=TRUE,
+stringsAsFactors = FALSE)
+
+myfulldata = merge(mydata1,mydata2,all.x=T)
+myfulldata <- myfulldata[-1]
+loan_stats <- myfulldata[-1]
+saveRDS(loan_stats,"loanstats.rds")
+
+loan_stats2 <- readRDS("loanstats.rds")
+
+
+loan_stats2 = subset(loan_stats2, select = -c(
+url,
+desc,
+mths_since_last_record,
+annual_inc_joint,
+dti_joint,
+verification_status_joint,
+open_act_il,
+open_acc_6m,
+open_il_24m,
+mths_since_rcnt_il,
+total_bal_il,
+open_rv_12m,
+open_rv_24m,
+max_bal_bc,
+all_util,
+inq_fi,
+total_cu_tl,
+inq_last_12m,
+mths_since_recent_bc_dlq,
+mths_since_recent_revol_delinq,
+revol_bal_joint,
+sec_app_earliest_cr_line,
+sec_app_inq_last_6mths,
+sec_app_mort_acc,
+settlement_term,
+settlement_term,
+settlement_amount,
+settlement_date,
+settlement_status,
+debt_settlement_flag_date,
+debt_settlement_flag,
+hardship_payoff_balance_amount,
+orig_projected_additional_accrued_interest,
+hardship_loan_status,
+hardship_dpd,
+hardship_length,
+hardship_amount,
+deferral_term,
+sec_app_mths_since_last_major_derog,
+sec_app_collections_12_mths_ex_med,
+sec_app_chargeoff_within_12_mths,
+sec_app_num_rev_accts,
+sec_app_open_act_il,
+sec_app_revol_util,
+sec_app_open_acc,
+il_util,
+mths_since_last_major_derog,
+settlement_percentage,
+disbursement_method,
+hardship_last_payment_amount,
+payment_plan_start_date,
+hardship_end_date,
+hardship_start_date,
+hardship_status,
+hardship_reason,
+hardship_type,
+hardship_flag,
+open_il_12m,
+emp_title,
+revol_util,
+pymnt_plan,
+delinq_2yrs,
+pub_rec,
+out_prncp,
+out_prncp_inv,
+collections_12_mths_ex_med,
+application_type,
+acc_now_delinq,
+chargeoff_within_12_mths,
+delinq_amnt,
+issue_d,
+earliest_cr_line,
+total_rec_late_fee,
+last_pymnt_d,
+next_pymnt_d,
+policy_code,
+title,
+zip_code,
+last_credit_pull_d,
+home_ownership,
+purpose
+))
+
+
+
+
+
+df_loan <- loan_stats2[sample(nrow(loan_stats2), 10000), ]
+
+```
+
+Step 1 Explore & Prep Data
+```{r}
+str(df_loan)
+
+```
+we have 10000 Examples and 97 features.
+
+I think some of the important features of this data is annual_inc, grade,term, application_type, int_rate,loan_amnt,home_ownership, 
+purpose, emp_length, total_pymnt, total_pymnt_inv, total_rec_prncp. I think others are just as important but many carry NA values.
+
+
+Step 2 Training Model
+```{r}
+
+
+df_loan$loan_status = ifelse(str_detect(df_loan$loan_status,"Paid"),df_loan$loan_status,"Default")
+df_loan$int_rate = (as.numeric(gsub(pattern = "%",replacement = "",x = df_loan$int_rate)))
+
+
+df_loan$loan_status <- as.character(df_loan$loan_status)
+df_loan$loan_status[df_loan$loan_status == "Charged Off" | df_loan$loan_status == "Default" ] <- 1
+df_loan$loan_status[df_loan$loan_status != 1] <- 0
+table(df_loan$loan_status)
+
+
+df_loan$loan_status <- as.numeric(df_loan$loan_status)
+indx1 <- sample(1:nrow(df_loan), as.integer(0.75*nrow(df_loan)))
+
+ls_train <- df_loan[indx1,]
+ls_test <- df_loan[-indx1,]
+
+ls_train_labels <- df_loan[indx1,1]
+ls_test_labels <- df_loan[-indx1,1] 
+
+
+
+```
+
+
+Step 3
+
+```{r}
+#logistic model >10% or <
+model <- lm(ls_train$loan_status ~.,family=binomial(link='logit'),data=ls_train)
+
+
+summary(model)
+
+anova(model, test="Chisq")
+
+```
+
+Part 4 Check the Accuracy Under the ROC Curve
+
+```{r}
+
+
+p <- predict(model, newdata=ls_test, type="response")
+pr <- prediction(p, ls_test$loan_status)
+prf <- performance(pr, measure = "tpr", x.measure = "fpr")
+plot(prf)
+
+
+
+ls_fitted <- predict(model, newdata = ls_test, type = "response")
+ls_test$prob <- ls_fitted
+ls_pred <- prediction(ls_test$prob,ls_test$loan_status)
+auc1 <- performance(ls_pred, measure = "auc")
+auc1@y.values
+
+
+```
+Step 5 Tuning according to Lantz when it comes to improving our regression model it is typically left for us to change the model. 
+That being said I will attempt to remove some of the variables to see if our model's performance improves. 
+```{r}
+new_loan <- df_loan
+
+new_loan2 = subset(new_loan, select = -c(
+  sub_grade,
+  verification_status,
+  addr_state,
+  mths_since_last_delinq,
+  num_accts_ever_120_pd
+))
+
+tune_model <- lm(new_loan2$loan_status ~., data = new_loan2)
+
+summary(tune_model)
+
+```
+Conclusion: Here we can see that this model has improved slightly in our R squared by .09, I think this model is best as we can see 
+an increase in our R squared, but I think we can refine our model even more possibly even add an interaction term with some of the 
+variables. I think it would be beneficial to have many of our columns not be filled with NA values but for now this model seems to be 
+best. 
